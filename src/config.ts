@@ -2,15 +2,15 @@ const PLACEHOLDER = "0x0000000000000000000000000000000000000000";
 
 export const CHAIN_CONFIG = Object.freeze({
   l1: {
-    chainId: 1,
-    name: "Ethereum Mainnet",
-    rpcUrl: "https://mainnet.infura.io/v3/YOUR_API_KEY",
+    chainId: 8453,
+    name: "Base Mainnet",
+    rpcUrl: "https://mainnet.base.org",
     dysTokenAddress: PLACEHOLDER,
     optimismPortal2Address: PLACEHOLDER,
   },
   l2: {
-    chainId: 9110,
-    name: "Deyansu CGT Chain",
+    chainId: 9126,
+    name: "Deyansu CGT Chain (L3)",
     rpcUrl: "https://rpc.deyansu.chain",
     l2ToL1MessagePasserAddress: "0x4200000000000000000000000000000000000016",
     swapRouterAddress: PLACEHOLDER,

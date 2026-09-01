@@ -17,6 +17,7 @@ export function useWallet() {
   const [l2Balance, setL2Balance] = useState("0.0");
   const [l1TokenBalance, setL1TokenBalance] = useState("0.0");
   const [error, setError] = useState("");
+  const [balanceError, setBalanceError] = useState("");
   const [txLogs, setTxLogs] = useState<TxLog[]>([]);
   const providerRef = useRef<BrowserProvider | null>(null);
 
@@ -25,12 +26,14 @@ export function useWallet() {
   }, []);
 
   const fetchBalances = useCallback(async (addr: string) => {
+    let hadError = false;
     try {
       const l1Provider = new JsonRpcProvider(CHAIN_CONFIG.l1.rpcUrl);
       const l1Bal = await l1Provider.getBalance(addr);
       setL1Balance(formatEther(l1Bal));
     } catch {
       setL1Balance("0.0");
+      hadError = true;
     }
     try {
       const l2Provider = new JsonRpcProvider(CHAIN_CONFIG.l2.rpcUrl);
@@ -38,6 +41,7 @@ export function useWallet() {
       setL2Balance(formatEther(l2Bal));
     } catch {
       setL2Balance("0.0");
+      hadError = true;
     }
     try {
       const l1Provider = new JsonRpcProvider(CHAIN_CONFIG.l1.rpcUrl);
@@ -52,7 +56,9 @@ export function useWallet() {
       setL1TokenBalance(formatEther(tokenBal));
     } catch {
       setL1TokenBalance("0.0");
+      hadError = true;
     }
+    setBalanceError(hadError ? "残高取得に失敗しました。RPC接続を確認してください。" : "");
   }, []);
 
   const connectWallet = useCallback(async (): Promise<string | null> => {
@@ -83,7 +89,7 @@ export function useWallet() {
     try {
       await window.ethereum.request({
         method: "wallet_switchEthereumChain",
-        params: [{ chainId: "0x2396" }],
+        params: [{ chainId: "0x23A6" }],
       });
     } catch (switchError: any) {
       if (switchError.code === 4902) {
@@ -91,7 +97,7 @@ export function useWallet() {
           method: "wallet_addEthereumChain",
           params: [
             {
-              chainId: "0x2396",
+              chainId: "0x23A6",
               chainName: CHAIN_CONFIG.l2.name,
               nativeCurrency: {
                 name: CHAIN_CONFIG.token.name,
@@ -112,7 +118,7 @@ export function useWallet() {
     try {
       await window.ethereum.request({
         method: "wallet_switchEthereumChain",
-        params: [{ chainId: "0x1" }],
+        params: [{ chainId: "0x2103" }],
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "チェーン切り替えエラー";
@@ -180,6 +186,7 @@ export function useWallet() {
     l2Balance,
     l1TokenBalance,
     error,
+    balanceError,
     txLogs,
     addTxLog,
     connectWallet,

@@ -138,6 +138,11 @@ export function Dashboard() {
           </button>
         ) : (
           <>
+            {wallet.balanceError && (
+              <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+                {wallet.balanceError}
+              </div>
+            )}
             <div className="mb-4 text-sm text-gray-600">
               <div>Account: <span className="font-mono">{wallet.account.slice(0, 10)}...{wallet.account.slice(-6)}</span></div>
               <div>Chain ID: {wallet.chainId}</div>

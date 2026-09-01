@@ -1,5 +1,5 @@
 {
-  "name": "nlt-dapp",
+  "name": "deyansu-cgt-audit",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -10,12 +10,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@tanstack/react-query": "^5.102.8",
     "ethers": "^6.17.0",
-    "lucide-react": "^1.39.0",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "viem": "^2.56.1"
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
