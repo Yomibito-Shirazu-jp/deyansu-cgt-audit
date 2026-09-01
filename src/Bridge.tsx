@@ -1,115 +1,154 @@
 import { useState, useCallback } from "react";
-import { BrowserProvider, Contract, formatEther, parseEther } from "ethers";
+import { Contract, parseEther } from "ethers";
 import { CHAIN_CONFIG } from "./config";
-import { ERC20_ABI, L1_STANDARD_BRIDGE_ABI, L2_STANDARD_BRIDGE_ABI } from "./abi";
+import { ERC20_ABI, OPTIMISM_PORTAL2_ABI, L2_TO_L1_MESSAGE_PASSER_ABI } from "./abi";
+import { useWalletContext } from "./WalletContext";
 
 type Direction = "deposit" | "withdraw";
 
+function safeError(e: unknown): string {
+  if (e instanceof Error) {
+    if (e.message.includes("user rejected")) return "トランザクションがキャンセルされました";
+    if (e.message.includes("insufficient funds")) return "残高不足です";
+    return "トランザクションエラーが発生しました";
+  }
+  return "不明なエラーが発生しました";
+}
+
+function isValidAmount(amount: string): boolean {
+  if (!amount || amount === ".") return false;
+  const num = parseFloat(amount);
+  return !isNaN(num) && num > 0;
+}
+
 export function Bridge() {
+  const wallet = useWalletContext();
   const [direction, setDirection] = useState<Direction>("deposit");
   const [amount, setAmount] = useState("");
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
-  const [l1Balance, setL1Balance] = useState("");
-  const [l2Balance, setL2Balance] = useState("");
-  const [account, setAccount] = useState("");
-
-  const connectWallet = useCallback(async () => {
-    if (!window.ethereum) {
-      setStatus("MetaMaskが見つかりません");
-      return;
-    }
-    try {
-      const provider = new BrowserProvider(window.ethereum);
-      const accounts = await provider.send("eth_requestAccounts", []);
-      setAccount(accounts[0]);
-      await fetchBalances(accounts[0]);
-    } catch (e) {
-      setStatus(`ウォレット接続エラー: ${e}`);
-    }
-  }, []);
-
-  const fetchBalances = useCallback(async (addr: string) => {
-    try {
-      const l1Provider = new BrowserProvider(window.ethereum!);
-      const l1Bal = await l1Provider.getBalance(addr);
-      setL1Balance(formatEther(l1Bal));
-
-      const { JsonRpcProvider } = await import("ethers");
-      const l2Provider = new JsonRpcProvider(CHAIN_CONFIG.l2.rpcUrl);
-      const l2Bal = await l2Provider.getBalance(addr);
-      setL2Balance(formatEther(l2Bal));
-    } catch {
-      setL1Balance("0.0");
-      setL2Balance("0.0");
-    }
-  }, []);
 
   const handleBridge = useCallback(async () => {
-    if (!account || !amount) return;
+    if (!wallet.account || !isValidAmount(amount)) return;
     setLoading(true);
     setStatus("");
     try {
-      const provider = new BrowserProvider(window.ethereum!);
-      const signer = await provider.getSigner();
-
       if (direction === "deposit") {
-        const token = new Contract(
-          CHAIN_CONFIG.l1.dysTokenAddress,
-          ERC20_ABI,
-          signer
-        );
-        const bridge = new Contract(
-          CHAIN_CONFIG.l1.l1StandardBridgeAddress,
-          L1_STANDARD_BRIDGE_ABI,
-          signer
-        );
+        if (wallet.chainId !== CHAIN_CONFIG.l1.chainId) {
+          await wallet.switchToL1();
+        }
+        if (!wallet.checkBalance(amount, wallet.l1TokenBalance)) {
+          setStatus("L1トークン残高不足です");
+          setLoading(false);
+          return;
+        }
+        const signer = await wallet.getSigner();
 
+        const token = new Contract(CHAIN_CONFIG.l1.dysTokenAddress, ERC20_ABI, signer);
         const approveTx = await token.approve(
-          CHAIN_CONFIG.l1.l1StandardBridgeAddress,
+          CHAIN_CONFIG.l1.optimismPortal2Address,
           parseEther(amount)
         );
+        wallet.addTxLog({
+          timestamp: Date.now(),
+          type: "Bridge Approve (L1→L2)",
+          hash: approveTx.hash,
+          status: "pending",
+          details: `${amount} 1DYS`,
+        });
         await approveTx.wait();
+        wallet.addTxLog({
+          timestamp: Date.now(),
+          type: "Bridge Approve (L1→L2)",
+          hash: approveTx.hash,
+          status: "success",
+          details: `${amount} 1DYS`,
+        });
         setStatus("承認完了。デポジット中...");
 
-        const depositTx = await bridge.depositERC20(
-          CHAIN_CONFIG.l1.dysTokenAddress,
-          CHAIN_CONFIG.l2.l2StandardBridgeAddress,
-          account,
+        const portal = new Contract(
+          CHAIN_CONFIG.l1.optimismPortal2Address,
+          OPTIMISM_PORTAL2_ABI,
+          signer
+        );
+        const depositTx = await portal.depositERC20Transaction(
+          wallet.account,
           parseEther(amount),
+          0,
           200000,
+          false,
           "0x"
         );
+        wallet.addTxLog({
+          timestamp: Date.now(),
+          type: "Bridge Deposit (L1→L2)",
+          hash: depositTx.hash,
+          status: "pending",
+          details: `${amount} 1DYS via OptimismPortal2`,
+        });
         await depositTx.wait();
+        wallet.addTxLog({
+          timestamp: Date.now(),
+          type: "Bridge Deposit (L1→L2)",
+          hash: depositTx.hash,
+          status: "success",
+          details: `${amount} 1DYS via OptimismPortal2`,
+        });
         setStatus(`デポジット完了: ${amount} 1DYS`);
       } else {
-        const l2Signer = await new BrowserProvider(
-          window.ethereum!
-        ).getSigner();
+        if (wallet.chainId !== CHAIN_CONFIG.l2.chainId) {
+          await wallet.switchToL2();
+        }
+        if (!wallet.checkBalance(amount, wallet.l2Balance)) {
+          setStatus("L2残高不足です");
+          setLoading(false);
+          return;
+        }
+        const signer = await wallet.getSigner();
 
-        const bridge = new Contract(
-          CHAIN_CONFIG.l2.l2StandardBridgeAddress,
-          L2_STANDARD_BRIDGE_ABI,
-          l2Signer
+        const passer = new Contract(
+          CHAIN_CONFIG.l2.l2ToL1MessagePasserAddress,
+          L2_TO_L1_MESSAGE_PASSER_ABI,
+          signer
         );
-
-        const withdrawTx = await bridge.withdrawTo(
-          CHAIN_CONFIG.l2.l2StandardBridgeAddress,
-          account,
+        const withdrawTx = await passer.initiateWithdrawal(
+          wallet.account,
           parseEther(amount),
           200000,
           "0x"
         );
+        wallet.addTxLog({
+          timestamp: Date.now(),
+          type: "Bridge Withdraw (L2→L1)",
+          hash: withdrawTx.hash,
+          status: "pending",
+          details: `${amount} 1DYS via L2ToL1MessagePasser`,
+        });
         await withdrawTx.wait();
-        setStatus(`引き出し完了: ${amount} 1DYS`);
+        wallet.addTxLog({
+          timestamp: Date.now(),
+          type: "Bridge Withdraw (L2→L1)",
+          hash: withdrawTx.hash,
+          status: "success",
+          details: `${amount} 1DYS via L2ToL1MessagePasser`,
+        });
+        setStatus(`引き出し完了: ${amount} 1DYS (7日後にL1でClaim可能)`);
       }
-      await fetchBalances(account);
+      await wallet.fetchBalances(wallet.account);
     } catch (e) {
-      setStatus(`エラー: ${e}`);
+      const msg = safeError(e);
+      setStatus(msg);
+      wallet.addTxLog({
+        timestamp: Date.now(),
+        type: direction === "deposit" ? "Bridge Deposit" : "Bridge Withdraw",
+        hash: "",
+        status: "failed",
+        details: msg,
+      });
     } finally {
       setLoading(false);
     }
-  }, [account, amount, direction, fetchBalances]);
+  }, [wallet, amount, direction]);
 
   return (
     <div className="max-w-md mx-auto bg-white rounded-2xl shadow-lg p-6 border border-gray-200">
@@ -138,9 +177,9 @@ export function Bridge() {
         </button>
       </div>
 
-      {!account ? (
+      {!wallet.account ? (
         <button
-          onClick={connectWallet}
+          onClick={wallet.connectWallet}
           className="w-full py-3 bg-nlt-600 text-white rounded-xl font-semibold hover:bg-nlt-700 transition"
         >
           ウォレット接続
@@ -149,29 +188,38 @@ export function Bridge() {
         <>
           <div className="mb-4 grid grid-cols-2 gap-2 text-sm">
             <div className="bg-gray-50 rounded-lg p-3">
-              <div className="text-gray-500">L1残高</div>
-              <div className="font-mono font-semibold">{l1Balance} 1DYS</div>
+              <div className="text-gray-500">L1 1DYS</div>
+              <div className="font-mono font-semibold">{wallet.l1TokenBalance}</div>
             </div>
             <div className="bg-gray-50 rounded-lg p-3">
-              <div className="text-gray-500">L2残高</div>
-              <div className="font-mono font-semibold">{l2Balance} 1DYS</div>
+              <div className="text-gray-500">L2 1DYS (Native)</div>
+              <div className="font-mono font-semibold">{wallet.l2Balance}</div>
             </div>
           </div>
 
+          <div className="mb-2 text-xs text-gray-500">
+            Chain ID: {wallet.chainId} | Account: {wallet.account.slice(0, 8)}...{wallet.account.slice(-4)}
+          </div>
+
           <div className="mb-4">
-            <label className="block text-sm text-gray-600 mb-1">金額</label>
+            <label className="block text-sm text-gray-600 mb-1">金額 (1DYS)</label>
             <input
-              type="text"
+              type="number"
+              min="0"
+              step="any"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.0"
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-nlt-500 focus:border-transparent"
             />
+            {amount && !isValidAmount(amount) && (
+              <div className="text-xs text-red-500 mt-1">有効な金額を入力してください</div>
+            )}
           </div>
 
           <button
             onClick={handleBridge}
-            disabled={loading || !amount}
+            disabled={loading || !isValidAmount(amount)}
             className="w-full py-3 bg-nlt-600 text-white rounded-xl font-semibold hover:bg-nlt-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? "処理中..." : direction === "deposit" ? "デポジット" : "引き出し"}
@@ -182,6 +230,12 @@ export function Bridge() {
       {status && (
         <div className="mt-4 p-3 bg-gray-50 rounded-lg text-sm text-gray-700 break-all">
           {status}
+        </div>
+      )}
+
+      {wallet.error && (
+        <div className="mt-2 p-3 bg-red-50 rounded-lg text-sm text-red-700">
+          {wallet.error}
         </div>
       )}
     </div>

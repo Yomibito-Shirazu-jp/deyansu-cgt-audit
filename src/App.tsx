@@ -2,12 +2,14 @@ import { useState } from "react";
 import { Bridge } from "./Bridge";
 import { Swap } from "./Swap";
 import { Pool } from "./Pool";
+import { Dashboard } from "./Dashboard";
+import { Stealth } from "./Stealth";
 import { CHAIN_CONFIG } from "./config";
 
-type Tab = "bridge" | "swap" | "pool";
+type Tab = "dashboard" | "bridge" | "swap" | "pool" | "stealth";
 
 function App() {
-  const [tab, setTab] = useState<Tab>("bridge");
+  const [tab, setTab] = useState<Tab>("dashboard");
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-nlt-50 via-white to-nlt-100">
@@ -27,10 +29,20 @@ function App() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-8">
-        <div className="flex gap-2 mb-6 justify-center">
+        <div className="flex gap-2 mb-6 justify-center flex-wrap">
+          <button
+            onClick={() => setTab("dashboard")}
+            className={`px-5 py-2 rounded-full font-medium transition ${
+              tab === "dashboard"
+                ? "bg-nlt-600 text-white shadow-md"
+                : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
+            }`}
+          >
+            Dashboard
+          </button>
           <button
             onClick={() => setTab("bridge")}
-            className={`px-6 py-2 rounded-full font-medium transition ${
+            className={`px-5 py-2 rounded-full font-medium transition ${
               tab === "bridge"
                 ? "bg-nlt-600 text-white shadow-md"
                 : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
@@ -40,7 +52,7 @@ function App() {
           </button>
           <button
             onClick={() => setTab("swap")}
-            className={`px-6 py-2 rounded-full font-medium transition ${
+            className={`px-5 py-2 rounded-full font-medium transition ${
               tab === "swap"
                 ? "bg-nlt-600 text-white shadow-md"
                 : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
@@ -50,7 +62,7 @@ function App() {
           </button>
           <button
             onClick={() => setTab("pool")}
-            className={`px-6 py-2 rounded-full font-medium transition ${
+            className={`px-5 py-2 rounded-full font-medium transition ${
               tab === "pool"
                 ? "bg-nlt-600 text-white shadow-md"
                 : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
@@ -58,16 +70,27 @@ function App() {
           >
             Pool
           </button>
+          <button
+            onClick={() => setTab("stealth")}
+            className={`px-5 py-2 rounded-full font-medium transition ${
+              tab === "stealth"
+                ? "bg-purple-600 text-white shadow-md"
+                : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
+            }`}
+          >
+            Stealth
+          </button>
         </div>
 
-        {tab === "bridge" ? <Bridge /> : tab === "swap" ? <Swap /> : <Pool />}
+        {tab === "dashboard" && <Dashboard />}
+        {tab === "bridge" && <Bridge />}
+        {tab === "swap" && <Swap />}
+        {tab === "pool" && <Pool />}
+        {tab === "stealth" && <Stealth />}
 
         <div className="mt-8 text-center text-xs text-gray-400">
           <p>
-            L1: {CHAIN_CONFIG.l1.rpcUrl} | L2: {CHAIN_CONFIG.l2.rpcUrl}
-          </p>
-          <p className="mt-1">
-            Token: {CHAIN_CONFIG.token.name} ({CHAIN_CONFIG.token.symbol})
+            Token: {CHAIN_CONFIG.token.name} ({CHAIN_CONFIG.token.symbol}) | Chain ID: {CHAIN_CONFIG.l2.chainId}
           </p>
         </div>
       </main>
