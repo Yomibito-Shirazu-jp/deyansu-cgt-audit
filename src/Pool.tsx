@@ -66,8 +66,10 @@ export function Pool() {
     setLoading(true);
     setStatus("");
     try {
-      if (wallet.chainId !== CHAIN_CONFIG.l2.chainId) {
-        await wallet.switchToL2();
+      if (!(await wallet.ensureChain(CHAIN_CONFIG.l2.chainId))) {
+        setStatus("Deyansu L2チェーンに切り替えられませんでした。処理を中止しました。");
+        setLoading(false);
+        return;
       }
       const signer = await wallet.getSigner();
 
@@ -133,8 +135,10 @@ export function Pool() {
     setLoading(true);
     setStatus("");
     try {
-      if (wallet.chainId !== CHAIN_CONFIG.l2.chainId) {
-        await wallet.switchToL2();
+      if (!(await wallet.ensureChain(CHAIN_CONFIG.l2.chainId))) {
+        setStatus("Deyansu L2チェーンに切り替えられませんでした。処理を中止しました。");
+        setLoading(false);
+        return;
       }
       const signer = await wallet.getSigner();
       const l2Provider = new JsonRpcProvider(CHAIN_CONFIG.l2.rpcUrl);
@@ -149,8 +153,26 @@ export function Pool() {
       const deadline = Math.floor(Date.now() / 1000) + 1200;
       const slippageNum = parseFloat(slippage) || 0.5;
       const slippageBps = BigInt(Math.floor((100 - slippageNum) * 100));
-      const amountAMin = (parseEther(reserveA) * slippageBps) / BigInt(10000);
-      const amountBMin = (parseEther(reserveB) * slippageBps) / BigInt(10000);
+
+      // min は「焼却するLP比率 × 現在リザーブ」を基準にする（総リザーブ基準は誤りで恒常revertの原因）。
+      // リザーブとLP総供給は署名直前に再取得する。
+      const burnLp = parseEther(removeAmount);
+      const pairReader = new Contract(pairAddress, PAIR_ABI, l2Provider);
+      const [reserves, lpTotalSupply] = await Promise.all([
+        pairReader.getReserves(),
+        pairReader.totalSupply(),
+      ]);
+      if (lpTotalSupply === BigInt(0)) {
+        setStatus("プールにLP供給がありません。処理を中止しました。");
+        setLoading(false);
+        return;
+      }
+      const reserve0 = reserves[0] as bigint;
+      const reserve1 = reserves[1] as bigint;
+      const expectedA = (reserve0 * burnLp) / lpTotalSupply;
+      const expectedB = (reserve1 * burnLp) / lpTotalSupply;
+      const amountAMin = (expectedA * slippageBps) / BigInt(10000);
+      const amountBMin = (expectedB * slippageBps) / BigInt(10000);
 
       const tx = await routerWithSigner.removeLiquidity(
         tokenA,
@@ -191,7 +213,7 @@ export function Pool() {
     } finally {
       setLoading(false);
     }
-  }, [wallet, removeAmount, slippage, tokenA, tokenB, reserveA, reserveB, fetchPoolInfo]);
+  }, [wallet, removeAmount, slippage, tokenA, tokenB, fetchPoolInfo]);
 
   const handleConnectAndFetch = useCallback(async () => {
     const addr = await wallet.connectWallet();

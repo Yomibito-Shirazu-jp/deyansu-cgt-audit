@@ -48,8 +48,10 @@ export function Dashboard() {
     setDepositLoading(true);
     setDepositStatus("");
     try {
-      if (wallet.chainId !== CHAIN_CONFIG.l1.chainId) {
-        await wallet.switchToL1();
+      if (!(await wallet.ensureChain(CHAIN_CONFIG.l1.chainId))) {
+        setDepositStatus("Baseチェーンに切り替えられませんでした。処理を中止しました。");
+        setDepositLoading(false);
+        return;
       }
       if (!wallet.checkBalance(depositAmount, wallet.l1TokenBalance)) {
         setDepositStatus("L1トークン残高不足です");

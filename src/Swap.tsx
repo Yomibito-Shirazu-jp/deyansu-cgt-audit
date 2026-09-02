@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Contract, parseEther, formatEther, JsonRpcProvider } from "ethers";
 import { CHAIN_CONFIG } from "./config";
 import { ERC20_ABI, SWAP_ROUTER_ABI } from "./abi";
@@ -68,13 +68,20 @@ export function Swap() {
     }
   }, [amountIn, tokenIn]);
 
+  // トークン方向を切り替えたら stale な見積りを捨てて再取得する
+  useEffect(() => {
+    getAmountOut();
+  }, [tokenIn]);
+
   const handleSwap = useCallback(async () => {
     if (!wallet.account || !isValidAmount(amountIn)) return;
     setLoading(true);
     setStatus("");
     try {
-      if (wallet.chainId !== CHAIN_CONFIG.l2.chainId) {
-        await wallet.switchToL2();
+      if (!(await wallet.ensureChain(CHAIN_CONFIG.l2.chainId))) {
+        setStatus("Deyansu L2チェーンに切り替えられませんでした。スワップを中止しました。");
+        setLoading(false);
+        return;
       }
 
       const balance = tokenIn === "1DYS" ? wDysBalance : wethBalance;
@@ -113,7 +120,23 @@ export function Swap() {
       const path = [tokenInAddress, tokenOutAddress];
       const deadline = Math.floor(Date.now() / 1000) + 1200;
       const slippageNum = parseFloat(slippage) || 0.5;
-      const expectedOut = parseEther(amountOut);
+
+      // 署名直前に見積りを再取得する。stale/未取得の amountOut に依存すると
+      // amountOutMin=0 となりスリッページ保護が消失するため、0 なら中止する。
+      const quoteProvider = new JsonRpcProvider(CHAIN_CONFIG.l2.rpcUrl);
+      const quoteRouter = new Contract(CHAIN_CONFIG.l2.swapRouterAddress, SWAP_ROUTER_ABI, quoteProvider);
+      let expectedOut: bigint;
+      try {
+        const amounts = await quoteRouter.getAmountsOut(parseEther(amountIn), path);
+        expectedOut = amounts[amounts.length - 1] as bigint;
+      } catch {
+        expectedOut = BigInt(0);
+      }
+      if (expectedOut === BigInt(0)) {
+        setStatus("見積りを取得できませんでした。スワップを中止しました。");
+        setLoading(false);
+        return;
+      }
       const amountOutMin = (expectedOut * BigInt(Math.floor((100 - slippageNum) * 100))) / BigInt(10000);
 
       const swapTx = await router.swapExactTokensForTokens(

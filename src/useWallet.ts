@@ -86,18 +86,19 @@ export function useWallet() {
 
   const switchToL2 = useCallback(async () => {
     if (!window.ethereum) return;
+    const hexChainId = "0x" + CHAIN_CONFIG.l2.chainId.toString(16);
     try {
       await window.ethereum.request({
         method: "wallet_switchEthereumChain",
-        params: [{ chainId: "0x23A6" }],
+        params: [{ chainId: hexChainId }],
       });
     } catch (switchError: any) {
-      if (switchError.code === 4902) {
+      if (switchError?.code === 4902) {
         await window.ethereum.request({
           method: "wallet_addEthereumChain",
           params: [
             {
-              chainId: "0x23A6",
+              chainId: hexChainId,
               chainName: CHAIN_CONFIG.l2.name,
               nativeCurrency: {
                 name: CHAIN_CONFIG.token.name,
@@ -109,22 +110,84 @@ export function useWallet() {
             },
           ],
         });
+      } else {
+        const msg = switchError instanceof Error ? switchError.message : "チェーン切り替えエラー";
+        setError(msg);
       }
     }
   }, []);
 
   const switchToL1 = useCallback(async () => {
     if (!window.ethereum) return;
+    const hexChainId = "0x" + CHAIN_CONFIG.l1.chainId.toString(16);
     try {
       await window.ethereum.request({
         method: "wallet_switchEthereumChain",
-        params: [{ chainId: "0x2103" }],
+        params: [{ chainId: hexChainId }],
       });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "チェーン切り替えエラー";
-      setError(msg);
+    } catch (switchError: any) {
+      if (switchError?.code === 4902) {
+        await window.ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [
+            {
+              chainId: hexChainId,
+              chainName: CHAIN_CONFIG.l1.name,
+              nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+              rpcUrls: [CHAIN_CONFIG.l1.rpcUrl],
+              blockExplorerUrls: [],
+            },
+          ],
+        });
+      } else {
+        const msg = switchError instanceof Error ? switchError.message : "チェーン切り替えエラー";
+        setError(msg);
+      }
     }
   }, []);
+
+  // 切替後に実チェーンをRPCで検証し、期待IDと一致した場合のみ true を返す。
+  // 非同期更新される chainId state は信用せず、署名前のガードとして使う。
+  const ensureChain = useCallback(
+    async (expectedId: number): Promise<boolean> => {
+      if (!window.ethereum) {
+        setError("MetaMaskが見つかりません");
+        return false;
+      }
+      try {
+        let provider = new BrowserProvider(window.ethereum);
+        let actual = Number((await provider.getNetwork()).chainId);
+
+        if (actual !== expectedId) {
+          if (expectedId === CHAIN_CONFIG.l1.chainId) {
+            await switchToL1();
+          } else if (expectedId === CHAIN_CONFIG.l2.chainId) {
+            await switchToL2();
+          } else {
+            setError(`未知のチェーンID: ${expectedId}`);
+            return false;
+          }
+          // 切替後に実チェーンを再取得（拒否・保留・失敗はここで検出）
+          provider = new BrowserProvider(window.ethereum);
+          actual = Number((await provider.getNetwork()).chainId);
+        }
+
+        providerRef.current = provider;
+        setChainId(actual);
+
+        if (actual !== expectedId) {
+          setError(`チェーン切り替えに失敗しました (現在: ${actual} / 必要: ${expectedId})`);
+          return false;
+        }
+        return true;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "チェーン切り替えエラー";
+        setError(msg);
+        return false;
+      }
+    },
+    [switchToL1, switchToL2]
+  );
 
   const checkBalance = useCallback(
     (amount: string, balance: string): boolean => {
@@ -192,6 +255,7 @@ export function useWallet() {
     connectWallet,
     switchToL2,
     switchToL1,
+    ensureChain,
     checkBalance,
     getSigner,
     fetchBalances,

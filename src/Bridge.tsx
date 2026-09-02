@@ -34,8 +34,10 @@ export function Bridge() {
     setStatus("");
     try {
       if (direction === "deposit") {
-        if (wallet.chainId !== CHAIN_CONFIG.l1.chainId) {
-          await wallet.switchToL1();
+        if (!(await wallet.ensureChain(CHAIN_CONFIG.l1.chainId))) {
+          setStatus("Baseチェーンに切り替えられませんでした。処理を中止しました。");
+          setLoading(false);
+          return;
         }
         if (!wallet.checkBalance(amount, wallet.l1TokenBalance)) {
           setStatus("L1トークン残高不足です");
@@ -96,8 +98,10 @@ export function Bridge() {
         });
         setStatus(`デポジット完了: ${amount} 1DYS`);
       } else {
-        if (wallet.chainId !== CHAIN_CONFIG.l2.chainId) {
-          await wallet.switchToL2();
+        if (!(await wallet.ensureChain(CHAIN_CONFIG.l2.chainId))) {
+          setStatus("Deyansu L2チェーンに切り替えられませんでした。処理を中止しました。");
+          setLoading(false);
+          return;
         }
         if (!wallet.checkBalance(amount, wallet.l2Balance)) {
           setStatus("L2残高不足です");

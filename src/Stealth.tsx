@@ -49,8 +49,10 @@ export function Stealth() {
     setLoading(true);
     setStatus("");
     try {
-      if (wallet.chainId !== CHAIN_CONFIG.l2.chainId) {
-        await wallet.switchToL2();
+      if (!(await wallet.ensureChain(CHAIN_CONFIG.l2.chainId))) {
+        setStatus("Deyansu L2チェーンに切り替えられませんでした。処理を中止しました。");
+        setLoading(false);
+        return;
       }
       const signer = await wallet.getSigner();
 
